@@ -6,8 +6,10 @@
     <title>Building Gate Access Portal</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- QR Code Library -->
+    <!-- QR Code Generator Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- QR Code Scanner Library -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -42,12 +44,10 @@
 
     <!-- App Logic Script -->
     <script type="module">
-        // Helper to get URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const currentView = urlParams.get('view') || 'home';
         const passIdParam = urlParams.get('passId');
 
-        // Local storage or Firebase fallback helpers
         const getFirebaseConfig = () => {
             const saved = localStorage.getItem('firebase_config');
             return saved ? JSON.parse(saved) : null;
@@ -67,7 +67,7 @@
         const container = document.getElementById('app-container');
         const titleEl = document.getElementById('portal-title');
 
-        // --- ROUTER & VIEW RENDERER ---
+        // --- ROUTER ---
         if (currentView === 'host') {
             titleEl.textContent = 'Host Portal - Airbnb Integration';
             renderHostView(container);
@@ -82,9 +82,8 @@
             renderHomeView(container);
         }
 
-        // 1. HOME / GATEWAY VIEW (Select Role)
+        // 1. HOME VIEW
         function renderHomeView(parent) {
-            const currentBaseUrl = window.location.href.split('?')[0];
             parent.innerHTML = `
                 <div class="space-y-6 text-center max-w-2xl mx-auto py-12">
                     <h2 class="text-3xl font-bold tracking-tight text-white">Select Your Access Role</h2>
@@ -112,7 +111,7 @@
                                 <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
                             </div>
                             <h3 class="font-semibold text-lg">Security Guard Desk</h3>
-                            <p class="text-xs text-slate-400">Verify guest passes and approve building entry at the gate.</p>
+                            <p class="text-xs text-slate-400">Verify guest passes with live camera scanner and approve entry.</p>
                         </a>
                     </div>
 
@@ -120,7 +119,7 @@
                         <details class="text-left bg-slate-900 p-4 rounded-xl border border-slate-800">
                             <summary class="cursor-pointer font-medium text-sm text-slate-300">⚙️ Optional: Configure Cloud Database (Firebase)</summary>
                             <div class="mt-4 space-y-3 text-xs">
-                                <p class="text-slate-400">Paste your Firebase configuration JSON or keys here to sync data live across guest phones and guard tablets.</p>
+                                <p class="text-slate-400">Paste your Firebase configuration JSON here so guest passes sync instantly to security guard tablets.</p>
                                 <textarea id="fb-config-input" class="w-full h-24 bg-slate-950 p-3 rounded border border-slate-800 font-mono text-slate-300" placeholder='{"apiKey": "...", "databaseURL": "...", "projectId": "..."}'></textarea>
                                 <button id="save-fb-btn" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium rounded">Save Firebase Config</button>
                             </div>
@@ -178,7 +177,6 @@
                 const building = document.getElementById('host-building').value;
                 const unit = document.getElementById('host-unit').value;
                 const guestLink = `${baseUrl}?view=guest&unit=${encodeURIComponent(unit)}&building=${encodeURIComponent(building)}`;
-
                 const template = `Hi! Welcome to ${building}. Before your arrival, please register your details and vehicle info for building security gate clearance using this link: \n\n${guestLink}\n\nOnce completed, you will receive your digital gate pass QR code.`;
 
                 document.getElementById('airbnb-template').value = template;
@@ -245,7 +243,6 @@
                                 <p class="text-xs text-slate-600">Unit: <span id="pass-unit"></span> | Building: <span id="pass-building"></span></p>
                             </div>
                             
-                            <!-- QR Code Container -->
                             <div id="qrcode-container" class="flex justify-center bg-white p-2"></div>
                             
                             <div class="text-[10px] text-slate-500 font-mono">
@@ -253,7 +250,7 @@
                             </div>
                         </div>
 
-                        <p class="text-xs text-slate-400">Tip: Take a screenshot or scan this with your phone camera when arriving at security.</p>
+                        <p class="text-xs text-slate-400">Tip: Take a screenshot or scan this code when arriving at security.</p>
                     </div>
                 </div>
             `;
@@ -273,7 +270,6 @@
                     timestamp: Date.now()
                 };
 
-                // Save to Firebase if available, otherwise localStorage
                 if (db && window.FirebaseSDK) {
                     await window.FirebaseSDK.set(window.FirebaseSDK.ref(db, 'passes/' + passId), record);
                 } else {
@@ -282,7 +278,6 @@
                     localStorage.setItem('local_passes', JSON.stringify(localPasses));
                 }
 
-                // Render Pass View
                 document.getElementById('form-wrapper').classList.add('hidden');
                 document.getElementById('pass-wrapper').classList.remove('hidden');
                 document.getElementById('pass-guest-name').textContent = record.name;
@@ -290,7 +285,6 @@
                 document.getElementById('pass-building').textContent = record.building;
                 document.getElementById('pass-id-text').textContent = passId;
 
-                // Generate QR code encoding the direct SECURITY URL so native phone camera opens it instantly!
                 const securityUrl = `${window.location.href.split('?')[0]}?view=security&passId=${passId}`;
                 document.getElementById('qrcode-container').innerHTML = '';
                 new QRCode(document.getElementById('qrcode-container'), {
@@ -304,17 +298,29 @@
             });
         }
 
-        // 4. SECURITY GUARD VIEW
+        // 4. SECURITY GUARD VIEW (With Live Camera Scanner)
         function renderSecurityView(parent, passIdParam) {
             parent.innerHTML = `
                 <div class="max-w-xl mx-auto space-y-6">
                     <div class="bg-slate-900 p-6 rounded-2xl border border-slate-800 space-y-4">
                         <h2 class="text-xl font-bold text-white">Security Gate Verification Desk</h2>
-                        <p class="text-xs text-slate-400">Scan guest QR codes with your phone's regular camera app, or enter the Pass ID manually below.</p>
+                        <p class="text-xs text-slate-400">Scan guest QR codes using the device camera or search by Pass ID.</p>
 
-                        <div class="flex space-x-2">
-                            <input type="text" id="search-pass-id" class="flex-grow bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm uppercase font-mono" placeholder="Enter Pass ID (e.g. PASS-XYZ)">
-                            <button id="verify-btn" class="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg text-sm transition">Verify Pass</button>
+                        <!-- Camera Scanner Toggle Button -->
+                        <button id="toggle-scanner-btn" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-sm transition flex items-center justify-center space-x-2">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                            <span>Open Live Camera QR Scanner</span>
+                        </button>
+
+                        <!-- Live Camera Viewfinder Box -->
+                        <div id="scanner-container-wrapper" class="hidden space-y-3">
+                            <div id="reader" class="overflow-hidden rounded-xl border border-slate-800 bg-slate-950"></div>
+                            <button id="close-scanner-btn" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg">Close Camera</button>
+                        </div>
+
+                        <div class="pt-2 border-t border-slate-800 flex space-x-2">
+                            <input type="text" id="search-pass-id" class="flex-grow bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm uppercase font-mono" placeholder="Or enter Pass ID (e.g. PASS-XYZ)">
+                            <button id="verify-btn" class="px-5 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-lg text-sm transition">Verify</button>
                         </div>
                     </div>
 
@@ -336,8 +342,15 @@
 
             async function performVerification(id) {
                 if (!id) return;
-                let record = null;
+                // If scanned full URL containing passId, extract it
+                if (id.includes('passId=')) {
+                    try {
+                        const urlObj = new URL(id);
+                        id = urlObj.searchParams.get('passId') || id;
+                    } catch (e) {}
+                }
 
+                let record = null;
                 if (db && window.FirebaseSDK) {
                     const snapshot = await window.FirebaseSDK.get(window.FirebaseSDK.child(window.FirebaseSDK.ref(db), `passes/${id}`));
                     if (snapshot.exists()) record = snapshot.val();
@@ -367,6 +380,41 @@
                 }
             }
 
+            let html5QrCode = null;
+
+            document.getElementById('toggle-scanner-btn').addEventListener('click', () => {
+                const wrapper = document.getElementById('scanner-container-wrapper');
+                wrapper.classList.remove('hidden');
+                
+                if (!html5QrCode) {
+                    html5QrCode = new Html5Qrcode("reader");
+                    html5QrCode.start(
+                        { facingMode: "environment" },
+                        { fps: 10, qrbox: { width: 250, height: 250 } },
+                        (decodedText) => {
+                            html5QrCode.stop();
+                            wrapper.classList.add('hidden');
+                            document.getElementById('search-pass-id').value = decodedText;
+                            performVerification(decodedText);
+                        },
+                        (errorMessage) => {
+                            // Scanning framing error loop (safe to ignore)
+                        }
+                    ).catch(err => {
+                        alert('Unable to access camera. Please check camera permissions in your browser.');
+                    });
+                }
+            });
+
+            document.getElementById('close-scanner-btn').addEventListener('click', () => {
+                if (html5QrCode) {
+                    html5QrCode.stop().then(() => {
+                        html5QrCode = null;
+                    }).catch(() => {});
+                }
+                document.getElementById('scanner-container-wrapper').classList.add('hidden');
+            });
+
             document.getElementById('verify-btn').addEventListener('click', () => {
                 const id = document.getElementById('search-pass-id').value.trim();
                 performVerification(id);
@@ -377,7 +425,6 @@
                 window.location.href = window.location.href.split('?')[0] + '?view=security';
             });
 
-            // If scanned via phone native camera with passId in query string, verify automatically!
             if (passIdParam) {
                 document.getElementById('search-pass-id').value = passIdParam;
                 performVerification(passIdParam);
