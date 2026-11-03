@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Airbnb Guest Pre-Registration & Gate Pass System</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- QR Code Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- JsBarcode Generator -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getDatabase, ref, set, get, push, onValue, child } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js";
+        window.FirebaseSDK = { initializeApp, getDatabase, ref, set, get, push, onValue, child };
+    </script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#fff1f2',
+                            100: '#ffe4e6',
+                            500: '#ff385c', // Airbnb Pink/Red
+                            600: '#e00b41',
+                            700: '#cc0039'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white; color: black; }
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col justify-between bg-slate-950 text-slate-100">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-slate-900/90 border-b border-slate-800 sticky top-0 z-40 backdrop-blur-md no-print">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center gap-3 cursor-pointer" onclick="switchView('guest')">
+                    <div class="w-10 h-10 rounded-xl bg-brand-500 text-white flex items-center justify-center font-bold text-xl shadow-md shadow-brand-500/30">
+                        <i class="fa-solid fa-shield-halved"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-extrabold text-lg text-white leading-none">SafePass</span>
+                            <span id="sync-status-badge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                <i class="fa-solid fa-hard-drive mr-1"></i> Local Mode
+                            </span>
+                        </div>
+                        <span class="text-xs text-slate-400 font-medium">Airbnb Gate Security Platform</span>
+                    </div>
+                </div>
+
+                <!-- Navigation Tabs -->
+                <nav class="flex space-x-1 bg-slate-950/80 p-1 rounded-xl text-xs sm:text-sm font-semibold border border-slate-800">
+                    <button id="nav-host" onclick="switchView('host')" class="px-3 sm:px-3 py-1.5 rounded-lg transition-all text-slate-400 hover:text-white">
+                        <i class="fa-solid fa-link mr-1"></i><span class="hidden md:inline">Host</span> Link
+                    </button>
+                    <button id="nav-guest" onclick="switchView('guest')" class="px-3 sm:px-3 py-1.5 rounded-lg bg-brand-500 text-white shadow-sm transition-all font-bold">
+                        <i class="fa-solid fa-user-pen mr-1"></i>Guest
+                    </button>
+                    <button id="nav-security" onclick="switchView('security')" class="px-3 sm:px-3 py-1.5 rounded-lg transition-all text-slate-400 hover:text-white">
+                        <i class="fa-solid fa-user-shield mr-1"></i>Security Desk
+                    </button>
+                    <button id="nav-cloud" onclick="switchView('cloud')" class="px-3 sm:px-3 py-1.5 rounded-lg transition-all text-slate-400 hover:text-white">
+                        <i class="fa-solid fa-cloud-bolt mr-1"></i>Cloud Sync
+                    </button>
+                    <button id="nav-deploy" onclick="switchView('deploy')" class="px-3 sm:px-3 py-1.5 rounded-lg transition-all text-slate-400 hover:text-white">
+                        <i class="fa-brands fa-github mr-1"></i>GitHub Live
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+
+        <!-- ========================================== -->
+        <!-- VIEW 1: HOST MESSAGING & LINK GENERATOR    -->
+        <!-- ========================================== -->
+        <section id="view-host" class="hidden max-w-3xl mx-auto space-y-6">
+            <div class="glass-panel p-6 rounded-2xl shadow-xl">
+                <h2 class="text-xl font-bold text-white mb-1 flex items-center gap-2">
+                    <i class="fa-solid fa-paper-plane text-brand-500"></i> Airbnb Host Messaging Generator
+                </h2>
+                <p class="text-slate-400 text-sm mb-6">Create pre-configured check-in links to automatically request gate pre-registration from Airbnb guests.</p>
+
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Building / Property Name</label>
+                        <input type="text" id="host-building" value="Ocean Palms Luxury Apartments" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Unit / Apartment #</label>
+                            <input type="text" id="host-unit" value="Penthouse 5B" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Host Support Phone</label>
+                            <input type="text" id="host-phone" value="+1 (555) 019-2834" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                        </div>
+                    </div>
+
+                    <button onclick="updateHostLink()" class="w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-brand-500/20">
+                        Generate Custom Link & Template
+                    </button>
+                </div>
+            </div>
+
+            <!-- Airbnb Message Template Box -->
+            <div class="glass-panel p-6 rounded-2xl shadow-xl space-y-4">
+                <div class="flex justify-between items-center">
+                    <h3 class="font-bold text-white text-base">Ready-to-Paste Airbnb Message</h3>
+                    <button onclick="copyAirbnbMessage()" class="px-3 py-1.5 bg-brand-500/20 hover:bg-brand-500/30 text-brand-400 border border-brand-500/40 font-semibold text-xs rounded-lg transition-colors flex items-center gap-1.5">
+                        <i class="fa-regular fa-copy"></i> Copy Message
+                    </button>
+                </div>
+                
+                <textarea id="airbnb-message-preview" rows="8" readonly class="w-full p-4 rounded-xl border border-slate-800 bg-slate-950 font-mono text-xs sm:text-sm text-slate-300 focus:outline-none leading-relaxed resize-none"></textarea>
+                
+                <div id="copy-toast" class="hidden text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                    <i class="fa-solid fa-circle-check"></i> Copied to clipboard! Ready to send to your guest on Airbnb.
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ========================================== -->
+        <!-- VIEW 2: GUEST FORM & DIGITAL PASS CARD     -->
+        <!-- ========================================== -->
+        <section id="view-guest" class="max-w-2xl mx-auto">
+            
+            <!-- REGISTRATION FORM -->
+            <div id="guest-form-card" class="glass-panel p-6 sm:p-8 rounded-2xl shadow-2xl">
+                <div class="text-center mb-6">
+                    <span class="bg-brand-500/20 text-brand-400 border border-brand-500/30 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Guest Portal</span>
+                    <h1 class="text-2xl font-bold text-white mt-2">Building Security Pre-Registration</h1>
+                    <p class="text-slate-400 text-sm mt-1">Submit your details to generate your official gate access pass prior to arrival.</p>
+                </div>
+
+                <form id="registration-form" onsubmit="handleGuestSubmit(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Full Legal Name (Matching Photo ID) *</label>
+                        <input type="text" id="g-name" required placeholder="e.g. Jordan Miller" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Phone Number *</label>
+                            <input type="tel" id="g-phone" required placeholder="+1 (555) 000-0000" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Unit / Apartment # *</label>
+                            <input type="text" id="g-unit" required value="Penthouse 5B" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Check-in Date *</label>
+                            <input type="date" id="g-checkin" required class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Check-out Date *</label>
+                            <input type="date" id="g-checkout" required class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Vehicle License Plate (If Driving)</label>
+                            <input type="text" id="g-plate" placeholder="e.g. 7XYZ99" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm uppercase">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Gov ID / Passport # *</label>
+                            <input type="text" id="g-idnum" required placeholder="e.g. DL-9021823" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm uppercase">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Emergency Contact Info</label>
+                        <input type="text" id="g-emergency" placeholder="Name & Phone Number" class="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:ring-2 focus:ring-brand-500 text-sm">
+                    </div>
+
+                    <!-- Photo Upload Simulation -->
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">ID Photo Verification</label>
+                        <div class="mt-1 flex justify-center px-6 pt-4 pb-4 border-2 border-slate-700 border-dashed rounded-xl bg-slate-900/50 hover:bg-slate-900 transition-colors cursor-pointer relative" onclick="triggerFileInput()">
+                            <input type="file" id="g-idfile" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
+                            <div class="text-center space-y-1" id="upload-prompt">
+                                <i class="fa-solid fa-id-card text-slate-500 text-2xl"></i>
+                                <div class="text-xs text-slate-300 font-medium">Click to upload photo of ID or take camera capture</div>
+                                <p class="text-[10px] text-slate-500">Encrypted for Gate Security Review Only</p>
+                            </div>
+                            <div id="upload-preview" class="hidden flex items-center gap-3">
+                                <img id="preview-img" class="w-12 h-12 object-cover rounded-lg border border-slate-700" src="" alt="ID Preview">
+                                <div class="text-left">
+                                    <p id="preview-filename" class="text-xs font-semibold text-white truncate max-w-[180px]"></p>
+                                    <span class="text-[10px] text-emerald-400 font-bold"><i class="fa-solid fa-circle-check"></i> Image Attached</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-2">
+                        <button type="submit" class="w-full py-3.5 bg-brand-500 hover:bg-brand-600 text-white font-bold rounded-xl text-sm transition-all shadow-lg shadow-brand-500/25">
+                            Generate Security Digital Pass <i class="fa-solid fa-qrcode ml-2"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- DIGITAL PASS DISPLAY (AFTER SUBMISSION) -->
+            <div id="guest-pass-card" class="hidden space-y-4">
+                <div class="bg-white rounded-3xl text-slate-900 shadow-2xl overflow-hidden relative">
+                    <!-- Top Pass Header -->
+                    <div class="bg-slate-900 p-6 text-white text-center relative">
+                        <span class="absolute top-4 right-4 text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2.5 py-1 rounded-full font-bold uppercase tracking-wider">
+                            Verified Guest Pass
+                        </span>
+                        <div id="pass-building-display" class="text-xs text-slate-400 uppercase tracking-widest font-semibold">Ocean Palms Condominiums</div>
+                        <h2 class="text-2xl font-extrabold mt-1 text-white">GATE ACCESS PASS</h2>
+                        <div class="mt-2 text-brand-500 text-sm font-bold bg-white/10 inline-block px-3 py-1 rounded-lg backdrop-blur-sm">
+                            UNIT <span id="pass-unit-display">Penthouse 5B</span>
+                        </div>
+                    </div>
+
+                    <!-- Pass Details Body -->
+                    <div class="p-6 space-y-6">
+                        <!-- Barcode / QR Section -->
+                        <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-center flex flex-col items-center justify-center">
+                            <p class="text-xs text-slate-500 font-semibold mb-3 uppercase">Present QR or Barcode to Gate Guard</p>
+                            
+                            <!-- QR Code Container -->
+                            <div id="qrcode" class="p-2 bg-white rounded-xl shadow-sm border border-slate-200 mb-3"></div>
+                            
+                            <!-- Barcode Container -->
+                            <svg id="barcode" class="w-full max-w-[260px] h-16"></svg>
+                            
+                            <div class="mt-2 text-xs font-mono font-bold text-slate-700 tracking-wider" id="pass-code-text">PASS-123456</div>
+                        </div>
+
+                        <!-- Guest Info Grid -->
+                        <div class="grid grid-cols-2 gap-4 text-xs border-b border-slate-200 pb-4">
+                            <div>
+                                <span class="text-slate-400 uppercase font-semibold block">Primary Guest</span>
+                                <span id="pass-name" class="font-bold text-slate-800 text-sm">--</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-400 uppercase font-semibold block">Phone Number</span>
+                                <span id="pass-phone" class="font-bold text-slate-800 text-sm">--</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-400 uppercase font-semibold block">Check-in</span>
+                                <span id="pass-checkin" class="font-bold text-emerald-600 text-sm">--</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-400 uppercase font-semibold block">Check-out</span>
+                                <span id="pass-checkout" class="font-bold text-rose-600 text-sm">--</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-400 uppercase font-semibold block">Vehicle License Plate</span>
+                                <span id="pass-plate" class="font-bold text-slate-800">--</span>
+                            </div>
+                            <div>
+                                <span class="text-slate-400 uppercase font-semibold block">ID Clearance</span>
+                                <span id="pass-idstatus" class="font-bold text-emerald-600"><i class="fa-solid fa-shield-check"></i> Screened & Registered</span>
+                            </div>
+                        </div>
+
+                        <div class="text-[11px] text-slate-400 text-center">
+                            <i class="fa-solid fa-info-circle mr-1"></i> Keep this screen ready or screenshot your pass for security scan upon arrival.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex gap-3 no-print">
+                    <button onclick="window.print()" class="flex-1 py-3 bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-print"></i> Save / Print Pass
+                    </button>
+                    <button onclick="resetGuestForm()" class="py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition-all">
+                        Edit Form
+                    </button>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ========================================== -->
+        <!-- VIEW 3: SECURITY GUARD DESK PORTAL        -->
+        <!-- ========================================== -->
+        <section id="view-security" class="hidden space-y-6">
+            
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- SCANNER & LOOKUP COLUMN -->
+                <div class="lg:col-span-1 space-y-6">
+                    <div class="glass-panel p-6 rounded-2xl shadow-xl space-y-4">
+                        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-barcode text-brand-400"></i> Gate Scanner Terminal
+                        </h2>
+
+                        <!-- Camera Simulator Box -->
+                        <div class="bg-slate-950 rounded-xl p-4 text-center text-white relative overflow-hidden min-h-[200px] flex flex-col items-center justify-center border border-slate-800">
+                            <div class="w-16 h-16 border-2 border-brand-500 border-dashed rounded-xl mx-auto flex items-center justify-center animate-pulse">
+                                <i class="fa-solid fa-camera text-2xl text-brand-500"></i>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-3">Ready to scan guest barcode / QR code.</p>
+                            <span class="text-[10px] bg-slate-800 text-slate-300 font-mono px-2 py-1 rounded mt-1">Optical Laser Active</span>
+                        </div>
+
+                        <!-- Manual Code Entry Form -->
+                        <form onsubmit="handleManualVerification(event)" class="space-y-2">
+                            <label class="block text-xs font-semibold text-slate-400 uppercase">Scan or Input Pass Reference</label>
+                            <div class="flex gap-2">
+                                <input type="text" id="sec-input-code" placeholder="e.g. PASS-8921" class="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm font-mono text-white focus:ring-2 focus:ring-brand-500 uppercase">
+                                <button type="submit" class="px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white font-bold text-xs rounded-xl transition-colors">
+                                    Verify
+                                </button>
+                            </div>
+                        </form>
+
+                        <!-- Quick Verification Button -->
+                        <div class="pt-2 border-t border-slate-800">
+                            <button onclick="demoVerifyCurrentGuest()" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl transition-all flex items-center justify-center gap-2 border border-slate-700">
+                                <i class="fa-solid fa-bolt text-amber-400"></i> Verify Last Registered Guest
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VERIFICATION RESULT & DETAILS DISPLAY -->
+                <div class="lg:col-span-2 space-y-6">
+                    
+                    <!-- DEFAULT BLANK STATE -->
+                    <div id="sec-empty-state" class="glass-panel p-12 rounded-2xl shadow-xl text-center text-slate-500">
+                        <i class="fa-solid fa-shield-cat text-5xl mb-3 text-slate-600"></i>
+                        <h3 class="font-bold text-slate-300 text-base">Awaiting Pass Scan</h3>
+                        <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">Scan a guest barcode or enter their pass reference ID to view real-time building entry authorization.</p>
+                    </div>
+
+                    <!-- VERIFIED GUEST RESULT DISPLAY -->
+                    <div id="sec-result-card" class="hidden bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden transition-all">
+                        
+                        <!-- Status Banner -->
+                        <div id="sec-status-banner" class="p-4 sm:p-6 text-white flex justify-between items-center bg-emerald-600">
+                            <div class="flex items-center gap-3">
+                                <div class="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-2xl">
+                                    <i id="sec-status-icon" class="fa-solid fa-circle-check"></i>
+                                </div>
+                                <div>
+                                    <span id="sec-status-badge" class="text-xs font-extrabold uppercase tracking-widest bg-white/20 px-2 py-0.5 rounded text-white">ACCESS APPROVED</span>
+                                    <h3 id="sec-guest-name" class="text-xl font-bold">Jordan Miller</h3>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-xs text-white/80 uppercase block">Target Unit</span>
+                                <span id="sec-unit" class="text-2xl font-black">Penthouse 5B</span>
+                            </div>
+                        </div>
+
+                        <!-- Detail Breakdown -->
+                        <div class="p-6 space-y-6 text-slate-200">
+                            <div class="grid grid-cols-2 sm:grid-cols-3 gap-4 text-xs">
+                                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                                    <span class="text-slate-400 font-semibold block uppercase">Pass Reference</span>
+                                    <span id="sec-code" class="font-mono font-bold text-white text-sm">PASS-0000</span>
+                                </div>
+                                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                                    <span class="text-slate-400 font-semibold block uppercase">Check-In Date</span>
+                                    <span id="sec-checkin" class="font-bold text-emerald-400 text-sm">--</span>
+                                </div>
+                                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                                    <span class="text-slate-400 font-semibold block uppercase">Check-Out Date</span>
+                                    <span id="sec-checkout" class="font-bold text-rose-400 text-sm">--</span>
+                                </div>
+                                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                                    <span class="text-slate-400 font-semibold block uppercase">Phone Contact</span>
+                                    <span id="sec-phone" class="font-bold text-white">--</span>
+                                </div>
+                                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                                    <span class="text-slate-400 font-semibold block uppercase">Vehicle Plate</span>
+                                    <span id="sec-plate" class="font-bold text-white">--</span>
+                                </div>
+                                <div class="bg-slate-950 p-3 rounded-xl border border-slate-800">
+                                    <span class="text-slate-400 font-semibold block uppercase">Gov ID Record</span>
+                                    <span id="sec-idnum" class="font-bold text-white">--</span>
+                                </div>
+                            </div>
+
+                            <!-- Emergency & Photo Verification -->
+                            <div class="flex flex-col sm:flex-row gap-4 pt-2 border-t border-slate-800">
+                                <div class="flex-1 bg-amber-500/10 border border-amber-500/30 p-3 rounded-xl text-xs">
+                                    <span class="font-bold text-amber-400 block"><i class="fa-solid fa-phone text-amber-400 mr-1"></i> Emergency Contact:</span>
+                                    <span id="sec-emergency" class="text-amber-200 font-medium">None Listed</span>
+                                </div>
+                                <div class="flex items-center gap-2 px-4 py-2 bg-slate-950 rounded-xl border border-slate-800 text-xs font-semibold text-slate-300">
+                                    <i class="fa-solid fa-shield-check text-emerald-400 text-lg"></i>
+                                    <span>Identity Photo Verified</span>
+                                </div>
+                            </div>
+
+                            <!-- Gatekeeper Action Buttons -->
+                            <div class="flex gap-3 pt-2">
+                                <button onclick="logGateEntry('APPROVED')" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all shadow-md flex items-center justify-center gap-2">
+                                    <i class="fa-solid fa-door-open"></i> Grant Entry & Open Gate
+                                </button>
+                                <button onclick="logGateEntry('DENIED')" class="py-3 px-5 bg-rose-500/20 border border-rose-500/40 hover:bg-rose-500/30 text-rose-300 font-bold text-xs rounded-xl transition-all">
+                                    Deny Entry
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- RECENT GATE ENTRY AUDIT LOG -->
+                    <div class="glass-panel p-6 rounded-2xl shadow-xl space-y-4">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold text-white text-sm flex items-center gap-2">
+                                <i class="fa-solid fa-list-check text-slate-400"></i> Gate Entry Audit Log
+                            </h3>
+                            <span class="text-[10px] bg-slate-800 text-slate-300 font-bold px-2.5 py-0.5 rounded border border-slate-700">Live Guard Records</span>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-xs">
+                                <thead>
+                                    <tr class="border-b border-slate-800 text-slate-400 uppercase font-semibold">
+                                        <th class="pb-2">Time</th>
+                                        <th class="pb-2">Guest Name</th>
+                                        <th class="pb-2">Unit</th>
+                                        <th class="pb-2">Pass ID</th>
+                                        <th class="pb-2 text-right">Gate Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="security-log-body" class="divide-y divide-slate-800/60 text-slate-300">
+                                    <!-- Dynamic Log Rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+        </section>
+
+
+        <!-- ========================================== -->
+        <!-- VIEW 4: FIREBASE CLOUD SYNC CONFIG PANEL   -->
+        <!-- ========================================== -->
+        <section id="view-cloud" class="hidden max-w-3xl mx-auto space-y-6">
+            <div class="glass-panel p-6 sm:p-8 rounded-2xl shadow-2xl space-y-6">
+                <div>
+                    <div class="flex items-center gap-2 text-brand-500 font-bold text-xs uppercase tracking-wider">
+                        <i class="fa-solid fa-cloud-bolt"></i> Production Cloud Database
+                    </div>
+                    <h2 class="text-2xl font-bold text-white mt-1">Firebase Realtime DB Settings</h2>
+                    <p class="text-slate-400 text-sm mt-1">Paste your Firebase credentials below to enable live sync across different devices (e.g. Guest on phone, Guard on tablet).</p>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl text-xs text-slate-300 space-y-2">
+                    <p class="font-bold text-amber-400"><i class="fa-solid fa-circle-info mr-1"></i> Quick Firebase Setup (Free Tier):</p>
+                    <ol class="list-decimal list-inside space-y-1 text-slate-400 leading-relaxed">
+                        <li>Go to <a href="https://console.firebase.google.com" target="_blank" class="text-brand-400 underline">Firebase Console</a> and click <strong>Add Project</strong>.</li>
+                        <li>Navigate to <strong>Build > Realtime Database</strong> and click <strong>Create Database</strong>.</li>
+                        <li>Under <strong>Rules</strong>, set read/write permissions to true (or start in Test Mode).</li>
+                        <li>Click Project Settings (Gear icon) > <strong>Web App (&lt;/&gt;)</strong> to copy your web config parameters below.</li>
+                    </ol>
+                </div>
+
+                <form onsubmit="saveFirebaseConfig(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Database URL (Required for Realtime DB)</label>
+                        <input type="text" id="fb-databaseURL" placeholder="https://your-project-default-rtdb.firebaseio.com" class="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-sm focus:ring-2 focus:ring-brand-500">
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">API Key</label>
+                            <input type="text" id="fb-apiKey" placeholder="AIzaSy..." class="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-sm focus:ring-2 focus:ring-brand-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-400 uppercase mb-1">Project ID</label>
+                            <input type="text" id="fb-projectId" placeholder="my-airbnb-app" class="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-sm focus:ring-2 focus:ring-brand-500">
+                        </div>
+                    </div>
+
+                    <div class="flex gap-3 pt-2">
+                        <button type="submit" class="flex-1 py-3 bg-brand-500 hover:bg-brand-600 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-brand-500/20">
+                            Save Firebase Config & Connect Cloud Sync
+                        </button>
+                        <button type="button" onclick="clearFirebaseConfig()" class="py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl border border-slate-700">
+                            Use Local Storage
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+
+        <!-- ========================================== -->
+        <!-- VIEW 5: GITHUB PAGES DEPLOYMENT GUIDE     -->
+        <!-- ========================================== -->
+        <section id="view-deploy" class="hidden max-w-4xl mx-auto space-y-6">
+            <div class="glass-panel p-6 sm:p-8 rounded-2xl shadow-2xl space-y-6">
+                <div>
+                    <span class="bg-slate-800 text-brand-400 border border-brand-500/30 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Production Hosting</span>
+                    <h2 class="text-2xl font-bold text-white mt-2 flex items-center gap-2">
+                        <i class="fa-brands fa-github text-3xl"></i> Deploy to GitHub Pages (100% Free)
+                    </h2>
+                    <p class="text-slate-400 text-sm mt-1">Host your Airbnb Gate Security App live on the internet with a custom public URL.</p>
+                </div>
+
+                <div class="space-y-4">
+                    <!-- Step 1 -->
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl flex gap-4">
+                        <div class="w-8 h-8 rounded-full bg-brand-500/20 text-brand-400 font-bold flex items-center justify-center shrink-0 border border-brand-500/30">1</div>
+                        <div>
+                            <h4 class="font-bold text-white text-sm">Create a GitHub Repository</h4>
+                            <p class="text-slate-400 text-xs mt-1">Go to <a href="https://github.com/new" target="_blank" class="text-brand-400 underline">github.com/new</a>, name your repository <code>airbnb-gate-pass</code>, keep it <strong>Public</strong>, and click <strong>Create Repository</strong>.</p>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl flex gap-4">
+                        <div class="w-8 h-8 rounded-full bg-brand-500/20 text-brand-400 font-bold flex items-center justify-center shrink-0 border border-brand-500/30">2</div>
+                        <div>
+                            <h4 class="font-bold text-white text-sm">Upload index.html</h4>
+                            <p class="text-slate-400 text-xs mt-1">In your new repository, click <strong>Uploading an existing file</strong>, upload this single <code>index.html</code> file, and click <strong>Commit Changes</strong>.</p>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl flex gap-4">
+                        <div class="w-8 h-8 rounded-full bg-brand-500/20 text-brand-400 font-bold flex items-center justify-center shrink-0 border border-brand-500/30">3</div>
+                        <div>
+                            <h4 class="font-bold text-white text-sm">Enable GitHub Pages</h4>
+                            <p class="text-slate-400 text-xs mt-1">Go to <strong>Settings > Pages</strong> in your repository. Under <strong>Branch</strong>, select <code>main</code> (or <code>master</code>) and click <strong>Save</strong>.</p>
+                        </div>
+                    </div>
+
+                    <!-- Step 4 -->
+                    <div class="bg-slate-900 border border-slate-800 p-5 rounded-xl flex gap-4">
+                        <div class="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 font-bold flex items-center justify-center shrink-0 border border-emerald-500/30">4</div>
+                        <div>
+                            <h4 class="font-bold text-white text-sm">Copy Your Live URL</h4>
+                            <p class="text-slate-400 text-xs mt-1">Within 1-2 minutes, GitHub will publish your app live at:</p>
+                            <div class="mt-2 p-3 bg-slate-950 border border-slate-800 font-mono text-xs text-emerald-400 rounded-lg flex justify-between items-center">
+                                <span>https://YOUR-USERNAME.github.io/airbnb-gate-pass/</span>
+                                <i class="fa-solid fa-globe"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-4 border-t border-slate-800 text-center">
+                    <p class="text-xs text-slate-400">Once deployed, paste your live URL into the Host Link Generator tab to auto-generate Airbnb chat links!</p>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900/60 border-t border-slate-800 py-4 text-center text-xs text-slate-500 no-print">
+        <div class="max-w-7xl mx-auto px-4">
+            SafePass Airbnb Gate Pass System &bull; Production Ready &bull; Firebase Realtime Cloud & GitHub Deployable
+        </div>
+    </footer>
+
+    <!-- Application Script -->
+    <script>
+        // Data State
+        let dbMode = 'LOCAL'; // 'LOCAL' or 'FIREBASE'
+        let firebaseAppInstance = null;
+        let firebaseDbInstance = null;
+
+        let currentGuestPass = null;
+        let registeredPassesDatabase = [];
+        let gateLogHistory = [];
+
+        // Application Initialization
+        window.addEventListener('load', () => {
+            const today = new Date();
+            const checkout = new Date();
+            checkout.setDate(today.getDate() + 3);
+
+            document.getElementById('g-checkin').value = today.toISOString().split('T')[0];
+            document.getElementById('g-checkout').value = checkout.toISOString().split('T')[0];
+
+            // Initialize local demo database record
+            const samplePass = {
+                code: 'PASS-8921',
+                name: 'Alex Morgan',
+                phone: '+1 (555) 382-9102',
+                unit: 'Penthouse 5B',
+                checkin: today.toISOString().split('T')[0],
+                checkout: checkout.toISOString().split('T')[0],
+                plate: '8ABC12',
+                idnum: 'PASS-CA9021',
+                emergency: 'Jane Morgan (+1 555-999-8888)',
+                status: 'APPROVED'
+            };
+            registeredPassesDatabase.push(samplePass);
+            
+            gateLogHistory.push({
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                name: 'Alex Morgan',
+                unit: 'Penthouse 5B',
+                code: 'PASS-8921',
+                status: 'APPROVED'
+            });
+
+            renderSecurityLog();
+            updateHostLink();
+            checkFirebaseConfig();
+        });
+
+        // Firebase Initialization Check
+        function checkFirebaseConfig() {
+            const savedConfig = localStorage.getItem('safepass_fb_config');
+            if (savedConfig && window.FirebaseSDK) {
+                try {
+                    const config = JSON.parse(savedConfig);
+                    if (config.databaseURL) {
+                        const { initializeApp, getDatabase, ref, onValue } = window.FirebaseSDK;
+                        firebaseAppInstance = initializeApp(config);
+                        firebaseDbInstance = getDatabase(firebaseAppInstance);
+                        dbMode = 'FIREBASE';
+
+                        // Set UI badge
+                        const badge = document.getElementById('sync-status-badge');
+                        badge.className = "px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+                        badge.innerHTML = '<i class="fa-solid fa-cloud mr-1"></i> Live Firebase Sync';
+
+                        // Fill Form Inputs
+                        document.getElementById('fb-databaseURL').value = config.databaseURL || '';
+                        document.getElementById('fb-apiKey').value = config.apiKey || '';
+                        document.getElementById('fb-projectId').value = config.projectId || '';
+
+                        // Listen to live database changes
+                        const passesRef = ref(firebaseDbInstance, 'passes');
+                        onValue(passesRef, (snapshot) => {
+                            const data = snapshot.val();
+                            if (data) {
+                                registeredPassesDatabase = Object.values(data);
+                            }
+                        });
+
+                        const logsRef = ref(firebaseDbInstance, 'logs');
+                        onValue(logsRef, (snapshot) => {
+                            const data = snapshot.val();
+                            if (data) {
+                                gateLogHistory = Object.values(data).reverse();
+                                renderSecurityLog();
+                            }
+                        });
+                    }
+                } catch (err) {
+                    console.error("Firebase Initialization Error:", err);
+                }
+            }
+        }
+
+        function saveFirebaseConfig(e) {
+            e.preventDefault();
+            const config = {
+                databaseURL: document.getElementById('fb-databaseURL').value.trim(),
+                apiKey: document.getElementById('fb-apiKey').value.trim(),
+                projectId: document.getElementById('fb-projectId').value.trim()
+            };
+
+            if (!config.databaseURL) {
+                alert('Please enter at least a valid Firebase Database URL.');
+                return;
+            }
+
+            localStorage.setItem('safepass_fb_config', JSON.stringify(config));
+            alert('Firebase Cloud Config Saved! Refreshing page to connect...');
+            window.location.reload();
+        }
+
+        function clearFirebaseConfig() {
+            localStorage.removeItem('safepass_fb_config');
+            alert('Switched to Local Storage mode.');
+            window.location.reload();
+        }
+
+        // View Navigation Switcher
+        function switchView(viewName) {
+            const views = ['host', 'guest', 'security', 'cloud', 'deploy'];
+            views.forEach(v => {
+                document.getElementById(`view-${v}`).classList.add('hidden');
+                document.getElementById(`nav-${v}`).className = "px-3 sm:px-3 py-1.5 rounded-lg transition-all text-slate-400 hover:text-white";
+            });
+
+            document.getElementById(`view-${viewName}`).classList.remove('hidden');
+            document.getElementById(`nav-${viewName}`).className = "px-3 sm:px-3 py-1.5 rounded-lg bg-brand-500 text-white shadow-sm transition-all font-bold";
+        }
+
+        // Host Messaging Link Generator
+        function updateHostLink() {
+            const bldg = document.getElementById('host-building').value || 'Building';
+            const unit = document.getElementById('host-unit').value || 'Unit';
+            const phone = document.getElementById('host-phone').value || '';
+
+            document.getElementById('g-unit').value = unit;
+
+            const registrationUrl = window.location.href.split('?')[0] + `?unit=${encodeURIComponent(unit)}&bldg=${encodeURIComponent(bldg)}`;
+
+            const msgTemplate = `Hi! We're thrilled to host you at ${bldg} (${unit})!
+
+Building security gate protocol requires all incoming guests to pre-register before arrival.
+
+Please submit your details & get your digital gate scan pass here:
+👉 ${registrationUrl}
+
+Show your barcode/QR pass to the guard at the front gate for instant entrance.
+
+Contact us anytime at ${phone}. Safe travels!`;
+
+            document.getElementById('airbnb-message-preview').value = msgTemplate;
+        }
+
+        function copyAirbnbMessage() {
+            const textarea = document.getElementById('airbnb-message-preview');
+            textarea.select();
+            document.execCommand('copy');
+
+            const toast = document.getElementById('copy-toast');
+            toast.classList.remove('hidden');
+            setTimeout(() => toast.classList.add('hidden'), 3500);
+        }
+
+        // File Upload Simulation
+        function triggerFileInput() {
+            document.getElementById('g-idfile').click();
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('preview-img').src = e.target.result;
+                    document.getElementById('preview-filename').textContent = file.name;
+                    document.getElementById('upload-prompt').classList.add('hidden');
+                    document.getElementById('upload-preview').classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // Guest Registration Submit
+        function handleGuestSubmit(e) {
+            e.preventDefault();
+
+            const randomId = Math.floor(1000 + Math.random() * 9000);
+            const passCode = `PASS-${randomId}`;
+
+            const passData = {
+                code: passCode,
+                name: document.getElementById('g-name').value,
+                phone: document.getElementById('g-phone').value,
+                unit: document.getElementById('g-unit').value,
+                checkin: document.getElementById('g-checkin').value,
+                checkout: document.getElementById('g-checkout').value,
+                plate: document.getElementById('g-plate').value || 'N/A',
+                idnum: document.getElementById('g-idnum').value,
+                emergency: document.getElementById('g-emergency').value || 'N/A',
+                status: 'APPROVED',
+                timestamp: new Date().toISOString()
+            };
+
+            currentGuestPass = passData;
+
+            // Sync with Firebase or Local Database
+            if (dbMode === 'FIREBASE' && firebaseDbInstance) {
+                const { ref, set } = window.FirebaseSDK;
+                set(ref(firebaseDbInstance, 'passes/' + passCode), passData);
+            } else {
+                registeredPassesDatabase.push(passData);
+            }
+
+            // Populate Pass Card UI
+            document.getElementById('pass-unit-display').textContent = passData.unit;
+            document.getElementById('pass-code-text').textContent = passData.code;
+            document.getElementById('pass-name').textContent = passData.name;
+            document.getElementById('pass-phone').textContent = passData.phone;
+            document.getElementById('pass-checkin').textContent = passData.checkin;
+            document.getElementById('pass-checkout').textContent = passData.checkout;
+            document.getElementById('pass-plate').textContent = passData.plate;
+
+            // Render QR Code
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, {
+                text: passData.code,
+                width: 140,
+                height: 140,
+                colorDark : "#0f172a",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+
+            // Render Barcode
+            JsBarcode("#barcode", passData.code, {
+                format: "CODE128",
+                width: 2,
+                height: 50,
+                displayValue: false,
+                lineColor: "#0f172a"
+            });
+
+            document.getElementById('guest-form-card').classList.add('hidden');
+            document.getElementById('guest-pass-card').classList.remove('hidden');
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function resetGuestForm() {
+            document.getElementById('guest-pass-card').classList.add('hidden');
+            document.getElementById('guest-form-card').classList.remove('hidden');
+        }
+
+        // Security Guard Desk Verification
+        function handleManualVerification(e) {
+            e.preventDefault();
+            const inputCode = document.getElementById('sec-input-code').value.trim().toUpperCase();
+            if (!inputCode) return;
+            verifyCode(inputCode);
+        }
+
+        function demoVerifyCurrentGuest() {
+            if (currentGuestPass) {
+                verifyCode(currentGuestPass.code);
+            } else if (registeredPassesDatabase.length > 0) {
+                verifyCode(registeredPassesDatabase[0].code);
+            } else {
+                alert('No guests registered yet!');
+            }
+        }
+
+        function verifyCode(code) {
+            const foundPass = registeredPassesDatabase.find(p => p.code === code);
+
+            document.getElementById('sec-empty-state').classList.add('hidden');
+            const resultCard = document.getElementById('sec-result-card');
+            resultCard.classList.remove('hidden');
+
+            const banner = document.getElementById('sec-status-banner');
+            const badge = document.getElementById('sec-status-badge');
+            const icon = document.getElementById('sec-status-icon');
+
+            if (foundPass) {
+                banner.className = "p-4 sm:p-6 text-white flex justify-between items-center bg-emerald-600 transition-colors";
+                badge.textContent = "ACCESS APPROVED";
+                icon.className = "fa-solid fa-circle-check";
+
+                document.getElementById('sec-guest-name').textContent = foundPass.name;
+                document.getElementById('sec-unit').textContent = foundPass.unit;
+                document.getElementById('sec-code').textContent = foundPass.code;
+                document.getElementById('sec-checkin').textContent = foundPass.checkin;
+                document.getElementById('sec-checkout').textContent = foundPass.checkout;
+                document.getElementById('sec-phone').textContent = foundPass.phone;
+                document.getElementById('sec-plate').textContent = foundPass.plate;
+                document.getElementById('sec-idnum').textContent = foundPass.idnum;
+                document.getElementById('sec-emergency').textContent = foundPass.emergency;
+            } else {
+                banner.className = "p-4 sm:p-6 text-white flex justify-between items-center bg-rose-600 transition-colors";
+                badge.textContent = "UNAUTHORIZED / UNKNOWN PASS";
+                icon.className = "fa-solid fa-triangle-exclamation";
+
+                document.getElementById('sec-guest-name').textContent = "Unknown Visitor";
+                document.getElementById('sec-unit').textContent = "N/A";
+                document.getElementById('sec-code').textContent = code;
+                document.getElementById('sec-checkin').textContent = "--";
+                document.getElementById('sec-checkout').textContent = "--";
+                document.getElementById('sec-phone').textContent = "--";
+                document.getElementById('sec-plate').textContent = "--";
+                document.getElementById('sec-idnum').textContent = "UNVERIFIED";
+                document.getElementById('sec-emergency').textContent = "N/A";
+            }
+        }
+
+        function logGateEntry(status) {
+            const code = document.getElementById('sec-code').textContent;
+            const name = document.getElementById('sec-guest-name').textContent;
+            const unit = document.getElementById('sec-unit').textContent;
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const logEntry = { time, name, unit, code, status };
+
+            if (dbMode === 'FIREBASE' && firebaseDbInstance) {
+                const { ref, push } = window.FirebaseSDK;
+                push(ref(firebaseDbInstance, 'logs'), logEntry);
+            } else {
+                gateLogHistory.unshift(logEntry);
+                renderSecurityLog();
+            }
+
+            document.getElementById('sec-result-card').classList.add('hidden');
+            document.getElementById('sec-empty-state').classList.remove('hidden');
+            document.getElementById('sec-input-code').value = '';
+        }
+
+        function renderSecurityLog() {
+            const tbody = document.getElementById('security-log-body');
+            tbody.innerHTML = '';
+
+            gateLogHistory.slice(0, 5).forEach(log => {
+                const tr = document.createElement('tr');
+                const badgeClass = log.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+
+                tr.innerHTML = `
+                    <td class="py-2.5 font-mono text-slate-400">${log.time}</td>
+                    <td class="py-2.5 font-semibold text-white">${log.name}</td>
+                    <td class="py-2.5">${log.unit}</td>
+                    <td class="py-2.5 font-mono text-slate-400">${log.code}</td>
+                    <td class="py-2.5 text-right">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold ${badgeClass}">${log.status}</span>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
